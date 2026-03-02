@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://gold001"]
+
+[ext_resource type="Script" path="res://scripts/gold.gd" id="1"]
+
+[node name="Gold" type="Area2D"]
+collision_layer = 8
+collision_mask = 2
+script = ExtResource("1")
