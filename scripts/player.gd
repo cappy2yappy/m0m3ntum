@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 const KiraAnimations = preload("res://scripts/kira_animations.gd")
+const SFXManagerScript = preload("res://scripts/sfx_manager.gd")
 
 # ============================================================
 # M0M3NTUM — Player Controller
@@ -8,39 +9,39 @@ const KiraAnimations = preload("res://scripts/kira_animations.gd")
 # Ported from HTML prototype v4
 # ============================================================
 
-# PHYSICS CONSTANTS — Godot px/s velocity system
-# HTML prototype used px/frame at 60fps — multiply by 60 for px/s equivalents
-# GRAVITY applied as: velocity.y += GRAVITY * mult * delta  (NO * 60 factor)
-const GRAVITY := 1980.0           # 0.55 px/frame² × 60² = 1980 px/s²
-const HOLD_JUMP_GRAVITY_MULT := 0.35
-const FALL_GRAVITY_MULT := 1.6
-const JUMP_RELEASE_GRAVITY_MULT := 2.0
-const APEX_GRAVITY_MULT := 0.4
-const APEX_VELOCITY_THRESHOLD := 90.0   # 1.5 px/frame × 60
-const MAX_FALL_SPEED := 840.0           # 14 px/frame × 60
-const MAX_MOVE_SPEED := 390.0           # 6.5 px/frame × 60
-const MOVE_ACCEL := 36.0               # 0.6 × 60
-const AIR_ACCEL := 33.0                # 0.55 × 60
-const GROUND_FRICTION := 0.72          # per-frame multiplier — unchanged
-const AIR_FRICTION := 0.96             # per-frame multiplier — unchanged
+# PHYSICS CONSTANTS — tuned after N++/Celeste/Dead Cells analysis
+# N++ key insight: floaty apex + strong wall jump = flow state
+# Celeste: snappy dash, forgiving coyote, never punish forward momentum
+const GRAVITY := 1980.0
+const HOLD_JUMP_GRAVITY_MULT := 0.28     # N++: very floaty on hold (was 0.35)
+const FALL_GRAVITY_MULT := 1.8           # heavier fall = snappier rhythm (was 1.6)
+const JUMP_RELEASE_GRAVITY_MULT := 2.2   # quick short hop on release (was 2.0)
+const APEX_GRAVITY_MULT := 0.25          # N++: big apex hang time (was 0.4)
+const APEX_VELOCITY_THRESHOLD := 120.0   # wider apex window (was 90)
+const MAX_FALL_SPEED := 900.0
+const MAX_MOVE_SPEED := 420.0            # slightly faster run (was 390)
+const MOVE_ACCEL := 42.0                 # snappier ground accel (was 36)
+const AIR_ACCEL := 30.0                  # keep air a bit floaty (was 33)
+const GROUND_FRICTION := 0.70            # slightly more slide (was 0.72)
+const AIR_FRICTION := 0.97               # preserve air momentum longer (was 0.96)
 
 # N++ ADDITIVE JUMP
-const JUMP_IMPULSE := -600.0      # -10 px/frame × 60
-const JUMP_MIN_VELOCITY := -780.0  # -13 × 60
-const MAX_UPWARD_SPEED := -1080.0  # -18 × 60
-const WALL_JUMP_IMPULSE_Y := -540.0 # -9 × 60
-const WALL_JUMP_FORCE_X := 480.0   # 8 × 60
-const WALL_SLIDE_SPEED := 72.0     # 1.2 × 60
+const JUMP_IMPULSE := -630.0      # slightly higher jump (was -600)
+const JUMP_MIN_VELOCITY := -780.0
+const MAX_UPWARD_SPEED := -1080.0
+const WALL_JUMP_IMPULSE_Y := -600.0  # stronger wall jump (was -540) — N++ key feel
+const WALL_JUMP_FORCE_X := 510.0     # more horizontal kick (was 480)
+const WALL_SLIDE_SPEED := 60.0       # slower wall slide = more control (was 72)
 
-# Dash
-const DASH_SPEED := 1500.0         # feels good — fast but controllable
-const DASH_DURATION := 0.133      # ~8 frames at 60fps
-const MAX_AIR_DASHES := 2
-const DASH_COOLDOWN := 0.25
+# Dash — Dead Cells style: fast burst, short window
+const DASH_SPEED := 1600.0         # slightly faster burst (was 1500)
+const DASH_DURATION := 0.12        # slightly shorter (was 0.133) — snappier
+const MAX_AIR_DASHES := 1          # 1 air dash = more skillful (was 2)
+const DASH_COOLDOWN := 0.2         # shorter cooldown (was 0.25)
 
-# Forgiveness
-const COYOTE_TIME := 0.167        # ~10 frames
-const JUMP_BUFFER_TIME := 0.167
+# Forgiveness — Celeste-level generosity
+const COYOTE_TIME := 0.2           # slightly more coyote (was 0.167)
+const JUMP_BUFFER_TIME := 0.2      # more buffer window (was 0.167)
 
 # Grapple
 const GRAPPLE_MAX_LENGTH := 300.0
@@ -66,21 +67,32 @@ var grapple_length := 0.0
 var assist_mode := false
 var is_dead := false
 
+# SFX
+var sfx: Node = null
+
 # Animation
 var scarf_points: Array[Vector2] = []
 var trail_positions: Array[Vector2] = []
 var animated_sprite: AnimatedSprite2D = null
 var _current_anim := ""
+var _was_on_floor := false   # track landing for combo reset
 
 # Signals
 signal died
 signal collected_gold
+signal combo_triggered(action: String)
+signal combo_reset
 
 func _ready() -> void:
 	# Initialize scarf physics points
 	for i in range(8):
 		scarf_points.append(global_position + Vector2(-i * 4, 0))
 	
+	# Set up SFX
+	sfx = SFXManagerScript.new()
+	sfx.name = "SFX"
+	add_child(sfx)
+
 	# Set up KIRA AnimatedSprite2D
 	animated_sprite = get_node_or_null("AnimatedSprite2D")
 	if animated_sprite:
@@ -139,9 +151,13 @@ func _physics_process(delta: float) -> void:
 			velocity.x = 0
 	
 	# Coyote time
-	if is_on_floor():
+	var _on_floor_now := is_on_floor()
+	if _on_floor_now:
 		coyote_timer = COYOTE_TIME
 		dash_count = MAX_AIR_DASHES
+		if not _was_on_floor:
+			emit_signal("combo_reset")   # only on landing, not every frame
+	_was_on_floor = _on_floor_now
 	
 	# Jump buffer
 	if Input.is_action_just_pressed("jump"):
@@ -173,6 +189,7 @@ func _physics_process(delta: float) -> void:
 			is_touching_wall = 0
 			jump_buffer_timer = 0
 			_spawn_wall_jump_particles()
+			emit_signal("combo_triggered", "WALL JUMP")
 	
 	# Dash initiation
 	if dash_buffer_timer > 0 and dash_cooldown_timer <= 0:
@@ -185,6 +202,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = 0
 			velocity.x = DASH_SPEED * facing_dir
 			_spawn_dash_particles()
+			emit_signal("combo_triggered", "DASH")
 	
 	# ======== GRAVITY — N++ SYSTEM ========
 	if is_grappling:
@@ -222,9 +240,16 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 func _play_anim(anim: String) -> void:
-	if animated_sprite and _current_anim != anim:
-		_current_anim = anim
-		animated_sprite.play(anim)
+	if not animated_sprite:
+		return
+	# Fall back to idle if the animation doesn't exist in the sprite frames
+	var target := anim
+	if animated_sprite.sprite_frames and not animated_sprite.sprite_frames.has_animation(target):
+		target = "idle"
+	if _current_anim != target:
+		_current_anim = target
+		animated_sprite.visible = true
+		animated_sprite.play(target)
 
 func _update_animation() -> void:
 	if not animated_sprite:
@@ -247,14 +272,18 @@ func _update_animation() -> void:
 		return
 	
 	if not is_on_floor():
-		_play_anim("jump")
+		if velocity.y < -30.0:
+			_play_anim("jump")
+		else:
+			_play_anim("fall")
 		return
 	
-	if Input.is_action_pressed("crouch") if InputMap.has_action("crouch") else false:
-		_play_anim("crouch")
+	var crouch_held := Input.is_action_pressed("crouch") if InputMap.has_action("crouch") else false
+	if crouch_held:
+		_play_anim("crouch")   # instant snap, 1-frame loop — never disappears
 		return
 	
-	if abs(velocity.x) > 50:
+	if abs(velocity.x) > 50.0:
 		_play_anim("run")
 		return
 	
@@ -380,57 +409,188 @@ func _draw() -> void:
 				draw_circle(local_pos + Vector2(0, -28), 10.0, Color(scarf_color, alpha))
 		return
 	
-	var skin = Color("#8B5E3C")      # dark brown skin
-	var outfit = Color("#111111")     # black outfit
-	var scarf_color = Color("#cc2244") # red scarf
-	var hair = Color("#1a1a1a")       # near-black hair
-	
-	# Body offset (character center is at feet, collision is offset up)
-	var oy = -28.0  # match collision shape center
-	
-	# Legs
-	draw_rect(Rect2(-8, oy + 14, 6, 14), outfit)
-	draw_rect(Rect2(2, oy + 14, 6, 14), outfit)
-	
-	# Torso
-	draw_rect(Rect2(-10, oy - 6, 20, 22), outfit)
-	
-	# Arms
-	var arm_swing = sin(Time.get_ticks_msec() * 0.008) * 3.0 if abs(velocity.x) > 50 else 0.0
-	draw_rect(Rect2(-14, oy - 4 + arm_swing, 5, 16), skin)
-	draw_rect(Rect2(9, oy - 4 - arm_swing, 5, 16), skin)
-	
-	# Head
-	draw_circle(Vector2(0, oy - 14), 8.0, skin)
-	
-	# Eyes - white with dark pupils
-	var eye_dir = facing_dir * 2.0
-	draw_circle(Vector2(-3 + eye_dir, oy - 15), 2.0, Color.WHITE)
-	draw_circle(Vector2(3 + eye_dir, oy - 15), 2.0, Color.WHITE)
-	draw_circle(Vector2(-3 + eye_dir + facing_dir, oy - 15), 1.0, Color.BLACK)
-	draw_circle(Vector2(3 + eye_dir + facing_dir, oy - 15), 1.0, Color.BLACK)
-	
-	# Ponytail
-	var ponytail_base = Vector2(-facing_dir * 6, oy - 18)
-	for i in range(5):
-		var px = ponytail_base.x - facing_dir * i * 4
-		var py = ponytail_base.y + i * 2 + sin(Time.get_ticks_msec() * 0.005 + i * 0.8) * 2
-		draw_circle(Vector2(px, py), 3.0 - i * 0.3, hair)
-	
-	# Scarf (drawn from physics points)
-	if scarf_points.size() > 1:
-		for i in range(1, scarf_points.size()):
-			var local_a = scarf_points[i - 1] - global_position
-			var local_b = scarf_points[i] - global_position
-			var width = 5.0 - i * 0.5
-			draw_line(local_a, local_b, scarf_color, max(width, 1.0))
-	
-	# Dash trail
+	# ── MODERN 2D KIRA — Godot draw API version ─────────────
+	var SKIN      := Color(0.545, 0.369, 0.235)   # warm dark brown
+	var SKIN_HI   := Color(0.69, 0.47, 0.33)      # highlight
+	var SKIN_SHD  := Color(0.42, 0.265, 0.14)     # shadow
+	var HAIR      := Color(0.08, 0.06, 0.06)
+	var OUTFIT    := Color(0.08, 0.08, 0.10)
+	var OUTFIT_HI := Color(0.16, 0.16, 0.22)
+	var SCARF     := Color(0.80, 0.13, 0.17)
+	var SCARF_HI  := Color(0.95, 0.27, 0.33)
+	var WRAPS     := Color(0.86, 0.83, 0.78)
+	var WRAPS_SHD := Color(0.66, 0.63, 0.58)
+
+	var oy := -56.0   # feet at 0, head at top  (hitbox is 56px tall centered at -28)
+	var t  := Time.get_ticks_msec() * 0.001
+
+	var is_running: bool = abs(velocity.x) > 50.0
+	var is_rising  := velocity.y < -30.0 and not is_on_floor()
+	var is_falling := velocity.y > 30.0 and not is_on_floor()
+	var is_sliding := is_touching_wall != 0 and velocity.y > 0 and not is_on_floor()
+
+	# Run cycle
+	var ri := (Time.get_ticks_msec() / 50) % 8
+	var RUN8 := [
+		Vector4(-0.55, 0.55, 0.3, -0.3),
+		Vector4(-0.75, 0.75, 0.5, -0.1),
+		Vector4(-0.45, 0.45, 0.2, 0.2),
+		Vector4(-0.15, 0.15, -0.1, 0.5),
+		Vector4(0.55, -0.55, -0.3, 0.3),
+		Vector4(0.75, -0.75, -0.5, 0.1),
+		Vector4(0.45, -0.45, -0.2, -0.2),
+		Vector4(0.15, -0.15, 0.1, -0.5),
+	]
+	var rp: Vector4 = RUN8[ri] if is_running else Vector4(0, 0, 0, 0)
+	# rp.x=lA(arm), y=rA, z=lK(knee), w=rK
+	var bob := sin(t * 12.0) * 1.5 if is_running else sin(t * 2.0) * 0.8
+	var jump_tuck := -6.0 if is_rising else (5.0 if is_falling else 0.0)
+	var body_lean := 8.0 if is_sliding else (-5.0 if is_rising else (12.0 if is_dashing else 0.0))
+
+	# Coordinate helpers (all in local space, character faces right by default)
+	# head top = oy, feet = 0
+	var head_cy := oy + 12.0 + bob        # head center y
+	var neck_y  := oy + 20.0 + bob
+	var shldr_y := oy + 24.0 + bob
+	var hip_y   := oy + 44.0 + bob
+	var cx      := 0.0                    # center x
+
+	# ── PONYTAIL ─────────────────────────────────────────────
+	var pt_swing := -10.0 if is_rising else (12.0 if is_falling else (sin(t * 8.0) * 6.0 if is_running else sin(t * 3.0) * 2.0))
+	var pt_base := Vector2(cx - facing_dir * 5.0, neck_y - 4.0)
+	var pt_mid  := Vector2(pt_base.x - facing_dir * pt_swing * 0.3, pt_base.y + 6.0)
+	var pt_tip  := Vector2(pt_base.x - facing_dir * pt_swing, pt_base.y + 16.0)
+	# Draw as thick tapered line (3 circles fading)
+	draw_line(pt_base, pt_mid, HAIR, 5.0)
+	draw_line(pt_mid, pt_tip, HAIR, 3.5)
+	draw_circle(pt_tip, 2.0, HAIR)
+	# Red tie
+	draw_circle(pt_base + Vector2(0, 1), 2.5, SCARF)
+
+	# ── BACK ARM ─────────────────────────────────────────────
+	var ba_ang: float = rp.y + jump_tuck * 0.015
+	var elb_b  := Vector2(cx + 12.0 + sin(ba_ang) * 9.0, shldr_y + 5.0 + cos(ba_ang) * 8.0)
+	var wri_b  := Vector2(cx + 12.0 + sin(ba_ang) * 16.0, shldr_y + 5.0 + cos(ba_ang) * 14.0)
+	draw_line(Vector2(cx + 10.0, shldr_y + 4.0), elb_b, SKIN_SHD, 6.0)
+	draw_line(elb_b, wri_b, SKIN_SHD, 5.0)
+	draw_circle(wri_b, 4.0, WRAPS_SHD)  # back wrist wrap
+
+	# ── BACK LEG ─────────────────────────────────────────────
+	var bl_ang: float = rp.y * 0.9 + jump_tuck * 0.04
+	var kn_b   := Vector2(cx + 6.0 + sin(bl_ang) * 10.0, hip_y + 4.0 + cos(bl_ang) * 4.0)
+	var ft_b   := Vector2(cx + 6.0 + sin(bl_ang + rp.w) * 18.0, hip_y + 4.0 + cos(bl_ang + rp.w) * 16.0)
+	draw_line(Vector2(cx + 5.0, hip_y + 2.0), kn_b, OUTFIT, 9.0)
+	draw_line(kn_b, ft_b, OUTFIT, 7.0)
+	draw_circle(ft_b, 4.5, WRAPS_SHD)  # back ankle
+	draw_circle(Vector2(ft_b.x + facing_dir * 4.0, ft_b.y + 3.0), 5.0, Color(0.08, 0.07, 0.09))  # tabi
+
+	# ── TORSO ────────────────────────────────────────────────
+	# Main body shape (drawn as polygon for lean)
+	var lean_off := body_lean * 0.15
+	var torso_pts := PackedVector2Array([
+		Vector2(cx - 10.0, shldr_y),
+		Vector2(cx + 10.0 + lean_off, shldr_y),
+		Vector2(cx + 9.0 + lean_off, hip_y),
+		Vector2(cx - 9.0, hip_y),
+	])
+	draw_polygon(torso_pts, PackedColorArray([OUTFIT, OUTFIT_HI, OUTFIT, OUTFIT]))
+	# Collar
+	draw_line(Vector2(cx - 4.0, shldr_y), Vector2(cx + 4.0 + lean_off, shldr_y), OUTFIT_HI, 2.5)
+
+	# DIAGONAL SASH — shoulder to hip
+	var sash_wave := sin(t * 4.0) * 1.5
+	var sash_start := Vector2(cx + 8.0 + lean_off, shldr_y + 2.0)
+	var sash_end   := Vector2(cx - 8.0, hip_y - 2.0)
+	var sash_mid   := Vector2(cx + sash_wave, (shldr_y + hip_y) * 0.5)
+	# Draw as ribbon (two parallel curves)
+	draw_line(sash_start, sash_mid, SCARF, 4.5)
+	draw_line(sash_mid, sash_end, SCARF, 4.0)
+	draw_line(Vector2(sash_start.x - 1.5, sash_start.y), sash_mid + Vector2(-1, 0), SCARF_HI, 2.0)
+	# Knot at hip end
+	draw_circle(sash_end, 4.0, SCARF)
+	draw_circle(sash_end, 2.0, SCARF_HI)
+
+	# ── HEAD ────────────────────────────────────────────────
+	# Skull
+	draw_circle(Vector2(cx, head_cy), 11.0, SKIN)
+	# Highlight
+	draw_circle(Vector2(cx - 3.0, head_cy - 4.0), 4.5, SKIN_HI)
+	# Hair top
+	var hair_pts := PackedVector2Array([
+		Vector2(cx - 10.0, head_cy - 2.0),
+		Vector2(cx - 8.0, head_cy - 12.0),
+		Vector2(cx - 2.0, head_cy - 14.5),
+		Vector2(cx + 3.0, head_cy - 14.0),
+		Vector2(cx + 10.0, head_cy - 8.0),
+		Vector2(cx + 10.0, head_cy - 2.0),
+	])
+	draw_polygon(hair_pts, PackedColorArray([HAIR, HAIR, HAIR, HAIR, HAIR, HAIR]))
+	# Side hair L
+	draw_circle(Vector2(cx - 10.0, head_cy + 2.0), 4.0, HAIR)
+	draw_circle(Vector2(cx - 11.0, head_cy + 5.0), 3.0, HAIR)
+
+	# Eyes (anime almond shape via ellipse approximation with circles)
+	var is_glow := is_dashing
+	var eye_col := SCARF if is_glow else Color(0.15, 0.10, 0.06)
+	var white_col := SCARF_HI if is_glow else Color(1.0, 0.97, 0.93)
+	# Left eye
+	draw_circle(Vector2(cx - 4.0, head_cy - 0.5), 3.5, white_col)
+	draw_circle(Vector2(cx - 3.5, head_cy - 0.5), 2.5, eye_col)
+	draw_circle(Vector2(cx - 5.0, head_cy - 1.5), 1.0, Color.WHITE)  # specular
+	draw_line(Vector2(cx - 7.5, head_cy - 3.5), Vector2(cx - 0.5, head_cy - 4.0), HAIR, 1.2)  # lash
+	# Right eye
+	draw_circle(Vector2(cx + 4.0, head_cy - 0.5), 3.5, white_col)
+	draw_circle(Vector2(cx + 4.5, head_cy - 0.5), 2.5, eye_col)
+	draw_circle(Vector2(cx + 2.5, head_cy - 1.5), 1.0, Color.WHITE)
+	draw_line(Vector2(cx + 0.5, head_cy - 4.0), Vector2(cx + 7.5, head_cy - 3.5), HAIR, 1.2)
+
+	# Nose
+	draw_circle(Vector2(cx + 2.0 * facing_dir, head_cy + 4.0), 1.2, SKIN_SHD)
+	# Mouth
+	draw_line(Vector2(cx - 2.5, head_cy + 6.5), Vector2(cx + 2.5 * facing_dir + 1.0, head_cy + 6.0), SKIN_SHD, 1.0)
+
+	# ── WAIST BELT ───────────────────────────────────────────
+	draw_rect(Rect2(cx - 10.0, hip_y - 2.0, 20.0, 5.0), Color(0.07, 0.07, 0.09))
+	draw_rect(Rect2(cx - 3.0, hip_y - 2.0, 6.0, 5.0), SCARF)  # belt clasp
+
+	# ── FRONT LEG ────────────────────────────────────────────
+	var fl_ang: float = rp.x * 0.9 + jump_tuck * 0.04
+	var kn_f   := Vector2(cx - 5.0 + sin(fl_ang) * 10.0, hip_y + 4.0 + cos(fl_ang) * 4.0)
+	var ft_f   := Vector2(cx - 5.0 + sin(fl_ang + rp.z) * 18.0, hip_y + 4.0 + cos(fl_ang + rp.z) * 16.0)
+	draw_line(Vector2(cx - 5.0, hip_y + 2.0), kn_f, OUTFIT_HI, 9.0)
+	draw_line(kn_f, ft_f, OUTFIT_HI, 7.5)
+	draw_circle(ft_f, 5.0, WRAPS)  # front ankle wrap
+	draw_circle(Vector2(ft_f.x + facing_dir * 5.0, ft_f.y + 3.0), 6.0, Color(0.10, 0.09, 0.11))  # tabi
+
+	# ── FRONT ARM ────────────────────────────────────────────
+	var fa_ang: float = rp.x + jump_tuck * 0.015
+	var elb_f  := Vector2(cx - 12.0 + sin(fa_ang) * 9.0, shldr_y + 5.0 + cos(fa_ang) * 8.0)
+	var wri_f  := Vector2(cx - 12.0 + sin(fa_ang) * 16.0, shldr_y + 5.0 + cos(fa_ang) * 14.0)
+	draw_line(Vector2(cx - 10.0, shldr_y + 4.0), elb_f, SKIN, 6.5)
+	draw_line(elb_f, wri_f, SKIN, 5.0)
+	draw_circle(wri_f, 4.5, WRAPS)
+
+	# ── SASH TAIL (flowing physics ribbon) ───────────────────
+	if scarf_points.size() > 2:
+		var pts_a: PackedVector2Array = []
+		var pts_b: PackedVector2Array = []
+		for i in range(scarf_points.size()):
+			var lp := scarf_points[i] - global_position
+			var perp := Vector2(-0.0, 1.0) * (2.5 - i * 0.25)
+			pts_a.append(lp - perp)
+			pts_b.append(lp + perp)
+		# Fill ribbon
+		for i in range(1, pts_a.size()):
+			var life_frac := 1.0 - float(i) / pts_a.size()
+			var col := Color(SCARF.r, SCARF.g, SCARF.b, life_frac * 0.85)
+			draw_line(pts_a[i-1], pts_a[i], col, max(3.0 - i * 0.3, 0.5))
+
+	# ── DASH TRAIL ────────────────────────────────────────────
 	if is_dashing:
 		for i in range(trail_positions.size()):
-			var local_pos = trail_positions[i] - global_position
-			var alpha = float(i) / trail_positions.size() * 0.4
-			draw_circle(local_pos + Vector2(0, oy), 10.0, Color(scarf_color, alpha))
+			var local_pos := trail_positions[i] - global_position
+			var alpha := float(i) / trail_positions.size() * 0.35
+			draw_circle(local_pos + Vector2(0, oy + 28.0), 12.0, Color(SCARF.r, SCARF.g, SCARF.b, alpha))
 
 # ============================================================
 # INPUT — Godot best practice: use _unhandled_input for game actions
@@ -450,35 +610,45 @@ func _unhandled_input(event: InputEvent) -> void:
 # Godot best practice: use PhysicsDirectSpaceState2D for raycasts
 # ============================================================
 func _try_fire_grapple() -> void:
-	var player_center = global_position + Vector2(0, -28)
-	var mouse_pos = get_global_mouse_position()
-	var to_mouse = mouse_pos - player_center
-	var dist_to_mouse = to_mouse.length()
+	var player_center := global_position + Vector2(0, -28)
+	var mouse_pos := get_global_mouse_position()
 	
-	# Cap raycast to max grapple range
-	var ray_end = player_center + to_mouse.normalized() * min(dist_to_mouse, GRAPPLE_MAX_LENGTH)
+	# ── SPIDER-MAN RULE: grapple only fires ABOVE the player ──
+	# If mouse is at or below player center, clamp aim to horizontal
+	var to_target := mouse_pos - player_center
+	if to_target.y >= 0:
+		# Redirect to directly above — refuse to grapple downward
+		to_target = Vector2(to_target.x * 0.3, -GRAPPLE_MAX_LENGTH * 0.8)
 	
-	# Raycast toward mouse — hit platforms (layer 1)
-	var space = get_world_2d().direct_space_state
-	var query = PhysicsRayQueryParameters2D.create(player_center, ray_end, 1)
+	var dist_to_target: float = to_target.length()
+	var capped_dist: float = dist_to_target if dist_to_target < GRAPPLE_MAX_LENGTH else GRAPPLE_MAX_LENGTH
+	var ray_end: Vector2 = player_center + to_target.normalized() * capped_dist
+	
+	# Raycast toward target — hit platforms (layer 1)
+	var space := get_world_2d().direct_space_state
+	var query := PhysicsRayQueryParameters2D.create(player_center, ray_end, 1)
 	query.exclude = [self]
-	var result = space.intersect_ray(query)
+	var result := space.intersect_ray(query)
 	
 	if result and result.has("position"):
 		var hit_pos: Vector2 = result["position"]
-		var hit_dist = player_center.distance_to(hit_pos)
-		if hit_dist > 20.0 and hit_dist <= GRAPPLE_MAX_LENGTH:
+		var hit_dist := player_center.distance_to(hit_pos)
+		# Only attach if it's above the player
+		if hit_dist > 20.0 and hit_dist <= GRAPPLE_MAX_LENGTH and hit_pos.y < player_center.y:
 			is_grappling = true
 			grapple_point = hit_pos
 			grapple_length = hit_dist
 			_spawn_grapple_particles(hit_pos)
+			emit_signal("combo_triggered", "GRAPPLE")
 			return
 	
-	# Fallback: nearest grapple_point anchor in range
+	# Fallback: nearest grapple_point anchor that is ABOVE the player
 	var nearest_dist := GRAPPLE_MAX_LENGTH
 	var nearest_pos := Vector2.ZERO
 	for gp in get_tree().get_nodes_in_group("grapple_points"):
-		var d = player_center.distance_to(gp.global_position)
+		if gp.global_position.y >= player_center.y:
+			continue   # skip anchors at or below player
+		var d := player_center.distance_to(gp.global_position)
 		if d < nearest_dist:
 			nearest_dist = d
 			nearest_pos = gp.global_position
@@ -488,21 +658,26 @@ func _try_fire_grapple() -> void:
 		grapple_point = nearest_pos
 		grapple_length = nearest_dist
 		_spawn_grapple_particles(nearest_pos)
+		emit_signal("combo_triggered", "GRAPPLE")
 
 func _spawn_jump_particles() -> void:
+	if sfx: sfx.play_jump()
 	_burst_particles(global_position + Vector2(0, 0), Color(0.7, 0.85, 1.0), 6, 80.0, 160.0)
 
 func _spawn_wall_jump_particles() -> void:
+	if sfx: sfx.play_wall_jump()
 	_burst_particles(global_position + Vector2(is_touching_wall * 12, -16), Color(0.9, 0.7, 1.0), 8, 100.0, 220.0)
 
 func _spawn_dash_particles() -> void:
-	# Warm red/amber trail matching Kaze's scarf color
+	if sfx: sfx.play_dash()
 	_burst_particles(global_position + Vector2(0, -28), Color(0.85, 0.25, 0.15), 12, 80.0, 220.0)
 
 func _spawn_grapple_particles(pos: Vector2) -> void:
+	if sfx: sfx.play_grapple_fire()
 	_burst_particles(pos, Color(0.9, 0.3, 0.1), 6, 60.0, 140.0, 0.3)
 
 func _spawn_death_particles() -> void:
+	if sfx: sfx.play_death()
 	# Red burst at center-of-mass
 	_burst_particles(global_position + Vector2(0, -24), Color(1.0, 0.1, 0.1), 18, 120.0, 320.0, 0.7)
 	# Secondary dark particles

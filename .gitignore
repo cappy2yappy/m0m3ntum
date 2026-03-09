@@ -1,0 +1,13 @@
+.godot/
+.import/
+*.import
+*.translation
+export_presets.cfg
+.mono/
+data_*/
+*.tmp
+*.bak
+frame_*.png
+kira-sheet-*.png
+kira_spritesheet.png
+.DS_Store

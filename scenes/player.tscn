@@ -17,6 +17,7 @@ shape = SubResource("RectangleShape2D_player")
 [node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
 position = Vector2(0, -28)
 scale = Vector2(0.35, 0.35)
+offset = Vector2(0, 0)
 
 [node name="Camera2D" type="Camera2D" parent="."]
 position = Vector2(0, -28)

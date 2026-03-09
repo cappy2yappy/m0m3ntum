@@ -1,6 +1,7 @@
 extends Node
 class_name LevelLoader
 
+const PlatformDraw = preload("res://scripts/platform_draw.gd")
 const SPIKE_SCENE = preload("res://scenes/hazards/spike.tscn")
 const SAW_SCENE = preload("res://scenes/hazards/saw.tscn")
 const LASER_SCENE = preload("res://scenes/hazards/laser.tscn")
@@ -51,12 +52,11 @@ func load_level(index: int, parent: Node) -> Dictionary:
 		shape.shape = rect
 		body.position = Vector2(p["x"] + p["w"] / 2.0, p["y"] + p["h"] / 2.0)
 		body.add_child(shape)
-		# Visual
-		var sprite = ColorRect.new()
-		sprite.size = Vector2(p["w"], p["h"])
-		sprite.position = Vector2(-p["w"] / 2.0, -p["h"] / 2.0)
-		sprite.color = Color(0.3, 0.3, 0.35)
-		body.add_child(sprite)
+		# Visual — stylized rooftop stone/wood platform
+		var draw_node := PlatformDraw.new()
+		draw_node.platform_size = Vector2(p["w"], p["h"])
+		draw_node.position = Vector2(-p["w"] / 2.0, -p["h"] / 2.0)
+		body.add_child(draw_node)
 		body.collision_layer = 1
 		body.collision_mask = 0
 		parent.add_child(body)

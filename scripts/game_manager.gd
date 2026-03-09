@@ -12,6 +12,7 @@ const _GhostPlayerScript = preload("res://scripts/ghost_player.gd")
 @onready var player: CharacterBody2D = $Player
 @onready var camera: Camera2D = $Player/Camera2D
 @onready var level_loader: LevelLoader = $LevelLoader
+@onready var city_background: Node2D = $CityBackground
 @onready var level_container: Node2D = $Level
 @onready var ui: CanvasLayer = $UI
 @onready var gold_label: Label = $UI/HUD/GoldLabel
@@ -44,8 +45,21 @@ var death_flash_timer: float = 0.0
 var level_complete_layer: CanvasLayer = null
 var level_select_layer: CanvasLayer = null
 
+# ── Combo system ──────────────────────────────────────────────────────────
+var combo_count := 0
+var combo_timer := 0.0
+const COMBO_WINDOW := 1.5   # seconds to chain next move
+var combo_label: Label = null
+var combo_bar: ColorRect = null
+var combo_bar_fill: ColorRect = null
+
 func _ready() -> void:
 	player.died.connect(_on_player_died)
+	player.combo_triggered.connect(_on_combo_triggered)
+	player.combo_reset.connect(_on_combo_reset)
+	# Hook background parallax to camera
+	if city_background and city_background.has_method("set_camera"):
+		city_background.set_camera(camera)
 
 	# Create time trial manager
 	time_trial = _TimeTrialManagerScript.new()
@@ -98,6 +112,67 @@ func _setup_extra_ui() -> void:
 	death_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	$UI.add_child(death_flash)
 
+	# Combo bar — thin bar below HUD
+	combo_bar = ColorRect.new()
+	combo_bar.name = "ComboBar"
+	combo_bar.color = Color(0, 0, 0, 0.4)
+	combo_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	combo_bar.offset_top = 36
+	combo_bar.offset_bottom = 50
+	combo_bar.visible = false
+	$UI.add_child(combo_bar)
+
+	combo_bar_fill = ColorRect.new()
+	combo_bar_fill.name = "ComboBarFill"
+	combo_bar_fill.color = Color(0.95, 0.8, 0.1)
+	combo_bar_fill.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	combo_bar_fill.offset_top = 38
+	combo_bar_fill.offset_bottom = 48
+	combo_bar_fill.offset_right = 0
+	combo_bar_fill.visible = false
+	$UI.add_child(combo_bar_fill)
+
+	combo_label = Label.new()
+	combo_label.name = "ComboLabel"
+	combo_label.text = ""
+	combo_label.visible = false
+	combo_label.add_theme_font_size_override("font_size", 11)
+	combo_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	combo_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	combo_label.offset_top = 37
+	combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	$UI.add_child(combo_label)
+
+
+func _on_combo_triggered(action: String) -> void:
+	combo_count += 1
+	combo_timer = COMBO_WINDOW
+	_update_combo_hud()
+
+func _on_combo_reset() -> void:
+	combo_count = 0
+	combo_timer = 0.0
+	_update_combo_hud()
+
+func _update_combo_hud() -> void:
+	if not combo_label: return
+	var show = combo_count >= 2
+	combo_label.visible = show
+	combo_bar.visible = show
+	combo_bar_fill.visible = show
+	if show:
+		var mult = min(combo_count, 8)
+		var labels = ["", "", "x2 COMBO", "x3 HOT!", "x4 SICK!", "x5 WILD!", "x6 INSANE!", "x7 GODLIKE!", "x8 MAX!"]
+		combo_label.text = labels[mult] if mult < labels.size() else ("x%d COMBO!" % mult)
+		var fill_w = (combo_timer / COMBO_WINDOW)
+		combo_bar_fill.anchor_right = fill_w
+		# Color shift by multiplier
+		var col: Color
+		if mult >= 5: col = Color(1.0, 0.2, 0.2)
+		elif mult >= 3: col = Color(1.0, 0.5, 0.1)
+		else: col = Color(0.95, 0.85, 0.1)
+		combo_bar_fill.color = col
+		combo_label.add_theme_color_override("font_color", col)
 
 func _process(delta: float) -> void:
 	if game_running and not player.is_dead:
@@ -109,6 +184,14 @@ func _process(delta: float) -> void:
 		death_timer -= delta
 		if death_timer <= 0:
 			_respawn_player()
+
+	# Combo timer tick
+	if combo_timer > 0.0:
+		combo_timer -= delta
+		if combo_timer <= 0.0:
+			_on_combo_reset()
+		else:
+			_update_combo_hud()
 
 	# Fade death flash
 	if death_flash_timer > 0.0:
