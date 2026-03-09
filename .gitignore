@@ -11,3 +11,4 @@ frame_*.png
 kira-sheet-*.png
 kira_spritesheet.png
 .DS_Store
+builds/*.exe
