@@ -5,9 +5,114 @@ Clean up all character sprites/animations and add tons of polish to the first 10
 
 ---
 
+## 🔥 IMMEDIATE FEEDBACK (March 9, 2026)
+
+### Critical Issue #1: White Outline on All Sprites
+**Reported by Cap after Windows build test.**
+
+**Problem:** Every sprite has a weird white outline/fringe around it. This is anti-aliasing artifacts from the AI generation that weren't fully cleaned.
+
+**Reference:** See `sprite_reference_labeled.png` in the repo root — all 40 frames laid out with labels (idle_0, run_5, jump_2, etc.)
+
+**Fix Required:**
+1. Open each strip in Aseprite (or Python/PIL)
+2. Remove ALL white/light gray pixels (RGB > 240) on edges
+3. Use alpha channel cleanup: any pixel with alpha < 255 that's near-white should be made fully transparent
+4. Test in-game after each animation to verify no white fringe visible
+
+**Python cleanup script template:**
+```python
+from PIL import Image
+import numpy as np
+
+def remove_white_outline(strip_path):
+    img = Image.open(strip_path).convert("RGBA")
+    arr = np.array(img)
+    r, g, b, a = arr[:,:,0], arr[:,:,1], arr[:,:,2], arr[:,:,3]
+    
+    # Remove near-white fringe (R,G,B > 240, alpha < 255)
+    white_fringe = (r > 240) & (g > 240) & (b > 240) & (a < 255)
+    arr[white_fringe] = [0, 0, 0, 0]
+    
+    # Also remove very light pixels on edges (anti-alias remnants)
+    light_pixels = (r > 220) & (g > 220) & (b > 220) & (a > 0) & (a < 200)
+    arr[light_pixels] = [0, 0, 0, 0]
+    
+    cleaned = Image.fromarray(arr)
+    cleaned.save(strip_path)
+    print(f"Cleaned: {strip_path}")
+
+# Run on all strips
+for anim in ["idle", "run", "jump", "fall", "dash", "wall_slide", "crouch", "land"]:
+    remove_white_outline(f"assets/sprites/kira/{anim}/strip.png")
+```
+
+### Critical Issue #2: Level Blocking Bugs
+**Reported by Cap:** "There's still some things in the stages that don't allow you to proceed"
+
+**Action Required:**
+1. Playtest all 10 levels in order
+2. Document which levels are broken and what's blocking
+3. Common causes:
+   - Grapple points out of range (upward-only constraint may have broken some)
+   - Platforms placed too far apart
+   - Required dash/combo not possible due to cooldowns
+   - Missing grapple points that were assumed
+4. Create a bug list in this file (add section below)
+5. Fix each blocking issue and re-test
+
+**To test:** Run the Windows build (builds/M0M3NTUM-Windows.exe) OR run in Godot editor (F5)
+
+---
+
+## 🐛 Level Blocking Bugs (To Be Documented by Codex)
+
+### Template (fill this out as you test):
+```
+Level X: [LEVEL_NAME]
+- Bug: [describe what blocks progression]
+- Location: [platform coordinates or visual description]
+- Cause: [grapple out of range / gap too wide / etc]
+- Fix: [what needs to change]
+- Status: [ ] Fixed / [ ] Testing / [x] Broken
+```
+
+### Level 1: AWAKENING
+- Status: [ ] Needs testing
+
+### Level 2: SAW GAUNTLET
+- Status: [ ] Needs testing
+
+### Level 3: LASER MAZE
+- Status: [ ] Needs testing
+
+### Level 4: CHAOS MIXTURE
+- Status: [ ] Needs testing
+
+### Level 5: VERTICAL ASCENT
+- Status: [ ] Needs testing
+
+### Level 6: GRAPPLE INTRO
+- Status: [ ] Needs testing
+
+### Level 7: MOMENTUM CHAIN
+- Status: [ ] Needs testing
+
+### Level 8: DASH AND GRAPPLE
+- Status: [ ] Needs testing
+
+### Level 9: THE ASCENT
+- Status: [ ] Needs testing
+
+### Level 10: FINAL GAUNTLET
+- Status: [ ] Needs testing
+
+---
+
 ## Priority 1: Sprite Cleanup
 
 ### Current Issues
+- **WHITE OUTLINE/FRINGE** — ALL sprites have white anti-aliasing artifacts (see above for fix)
 - **Source:** AI-generated sprite strips in `assets/sprites/kira/*/strip.png` have artifacts:
   - Inconsistent proportions between animations (jump/fall frames look bloated)
   - Isolated red scarf fragments in some frames
