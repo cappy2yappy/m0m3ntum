@@ -109,6 +109,75 @@ Level X: [LEVEL_NAME]
 
 ---
 
+## Priority 0: Game Research & Reference Analysis
+
+**Goal:** Study similar games to inform design decisions and identify best practices.
+
+### Games to Research
+
+#### Must-Play References
+1. **N++** (2015) — The gold standard for momentum platformers
+   - Focus: Physics feel, apex hang time, flow state design
+   - Play at least 10 levels, note how gravity/jump feel
+   - Key question: How does dash work? How forgiving is coyote time?
+
+2. **Celeste** (2018) — Master class in tight controls + accessibility
+   - Focus: Dash mechanics, screen shake, particle effects
+   - Play Chapter 1 fully, note death/respawn flow
+   - Key question: How does the dash feel? What makes it so satisfying?
+
+3. **Dead Cells** (2018) — Polish reference
+   - Focus: Animation fluidity, visual feedback, UI polish
+   - Play first 30 minutes, note particle effects and screen shake
+   - Key question: What makes movement feel "juicy"?
+
+4. **Meat Boy** (2010) — Precision platforming baseline
+   - Focus: Wall jump mechanics, level pacing
+   - Play World 1, note how tight the controls feel
+   - Key question: How punishing is it? How does it handle momentum?
+
+### Research Tasks
+
+#### Task 1: Physics Comparison Sheet
+Create a markdown table comparing:
+- Jump height (estimate in player-heights)
+- Dash speed / duration
+- Gravity feel (floaty vs snappy)
+- Coyote time (frames/ms)
+- Wall jump strength
+
+Save as `RESEARCH_physics_comparison.md` in repo root.
+
+#### Task 2: Visual Feedback Analysis
+Take screenshots or notes on:
+- Particle effects (jump, dash, death)
+- Screen shake intensity and timing
+- UI/HUD placement and style
+- Color palettes used
+- Animation frame counts (estimate)
+
+Save as `RESEARCH_visual_feedback.md` in repo root.
+
+#### Task 3: Level Design Patterns
+Analyze first 3 levels of each game:
+- How do they teach mechanics?
+- Platform spacing patterns
+- Hazard introduction order
+- Difficulty curve (deaths per level estimate)
+
+Save as `RESEARCH_level_design.md` in repo root.
+
+### Deliverable
+
+After research, write a **1-page summary** at `RESEARCH_SUMMARY.md`:
+- Top 3 things M0M3NTUM should steal/improve
+- Top 3 things M0M3NTUM already does better
+- Top 3 specific changes to make (with priority)
+
+**Time Estimate:** 4-6 hours (play + analyze + document)
+
+---
+
 ## Priority 1: Sprite Cleanup
 
 ### Current Issues

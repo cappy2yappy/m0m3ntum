@@ -26,7 +26,7 @@ const GROUND_FRICTION := 0.70            # slightly more slide (was 0.72)
 const AIR_FRICTION := 0.97               # preserve air momentum longer (was 0.96)
 
 # N++ ADDITIVE JUMP
-const JUMP_IMPULSE := -630.0      # slightly higher jump (was -600)
+const JUMP_IMPULSE := -570.0      # lowered per Cap feedback (was -630, too high)
 const JUMP_MIN_VELOCITY := -780.0
 const MAX_UPWARD_SPEED := -1080.0
 const WALL_JUMP_IMPULSE_Y := -600.0  # stronger wall jump (was -540) — N++ key feel
